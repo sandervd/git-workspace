@@ -1,0 +1,89 @@
+#!/usr/bin/env python
+import sys
+import os
+import shutil
+import subprocess
+"""
+  sys.argv[1] -> previous HEAD
+  sys.argv[2] -> current HEAD
+  sys.argv[3] -> switched branch flag
+"""
+
+def main():
+	# Fetch active and new workspace names. (branches)
+	active_workspace_name = git_get_config('activeworkspace')
+	new_workspace_name = git(['rev-parse', '--symbolic-full-name', '--abbrev-ref', 'HEAD'])
+	
+	active_workspace = workspace(active_workspace_name)
+	new_workspace = workspace(new_workspace_name)
+
+	# Detached head state, abort.
+	if new_workspace == 'HEAD':
+		sys.exit(0)
+
+	# Switching to a new branch, no current workspace available.
+	if not active_workspace.exists() and not new_workspace.exists():
+		new_workspace.create()
+		new_workspace.set_active()
+		new_workspace.rebuild_environment()
+	
+
+	# Switch to a branch without workspace, so copy current workspace.
+	if active_workspace.exists() and not new_workspace.exists():
+		print 'Initializing workspace with data from previous workspace.'
+		shutil.copytree(active_workspace.path(), new_workspace.path())
+
+	# Switch to existing  workspace.
+	if active_workspace.exists() and new_workspace.exists():
+		new_workspace.set_active()
+
+	# Switch to an existing workspace.
+	if not active_workspace.exists() and new_workspace.exists():
+		new_workspace.set_active()
+	
+class workspace:
+	def __init__(self, name):
+		self.name = name
+		# Basedir of workspace.
+		self.workspace_base_path = git_get_config('basedir')
+		if not self.workspace_base_path:
+			self.workspace_base_path = os.path.expanduser('~/.git_workspace')
+			# webservers tend to run as a different user, so it can be hard to find out the git users path.
+			git_set_config('basedir', self.workspace_base_path)
+		self.project_name = git(['rev-parse', '--show-toplevel']).replace('/', '-').strip('-')
+		print "dir: " + self.project_name
+
+	def __str__(self):
+		return self.name
+
+	def path(self):
+		return self.workspace_base_path + '/' + self.project_name + '/' + self.name
+
+ 	def exists(self):
+		return os.path.exists(self.path())
+
+	def create(self):
+		if not self.exists():
+			os.makedirs(self.path())
+	
+	def set_active(self):
+		git_set_config('activeworkspace', self.name)
+	
+	def rebuild_environment(self):
+		print "call init script"
+	# def rebuild_environment
+
+# Run a git command.
+def git(args):
+	args = ['git'] + args
+	git = subprocess.Popen(args, stdout = subprocess.PIPE)
+	details = git.stdout.read()
+	details = details.strip()
+	return details
+
+def git_get_config(key):
+	return git(['config', 'workspace.' + key])
+
+def git_set_config(key, value):
+	return git(['config', '--replace-all', 'workspace.' + key, value])
+main()
